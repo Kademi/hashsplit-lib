@@ -46,6 +46,10 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
     private final TimerTask processQueue = new ProcessQueue();
     private final Timer timer = new Timer();
 
+    private boolean setFilePerms;
+    private boolean setReadable;
+    private boolean setReadableOwnerOnly;
+
     private Future<?> fsScanner;
 
     public FileSystem2BlobStore(File root) {
@@ -73,6 +77,9 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
         }
         try {
             FileUtil.writeFile(blob, bytes, false, true);
+            if (setFilePerms) {
+                blob.setReadable(setReadable, setReadableOwnerOnly);
+            }
         } catch (IOException ex) {
             throw new RuntimeException(blob.getAbsolutePath(), ex);
         }
@@ -129,6 +136,18 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
                 Logger.getLogger(FileSystem2BlobStore.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
+    }
+
+    public void setFilePerms(boolean setFilePerms) {
+        this.setFilePerms = setFilePerms;
+    }
+
+    public void setReadable(boolean setReadable) {
+        this.setReadable = setReadable;
+    }
+
+    public void setReadableOwnerOnly(boolean setReadableOwnerOnly) {
+        this.setReadableOwnerOnly = setReadableOwnerOnly;
     }
 
     private class ProcessQueue extends TimerTask {
