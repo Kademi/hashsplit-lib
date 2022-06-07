@@ -75,12 +75,7 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
             return; // already exists, so dont overwrite
         }
         try {
-            FileUtil.writeFile(blob, bytes, false, true);
-            if (setReadable != null || setReadableOwnerOnly != null ) {
-                boolean readable = safeBool(setReadableOwnerOnly);
-                boolean readableOwnerOnly = safeBool(setReadableOwnerOnly);
-                blob.setReadable(readable, readableOwnerOnly);
-            }
+            FileUtil.writeFile(blob, bytes, false, true, setReadable, setReadableOwnerOnly);
         } catch (IOException ex) {
             throw new RuntimeException(blob.getAbsolutePath(), ex);
         }
@@ -145,13 +140,6 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
 
     public void setReadableOwnerOnly(boolean setReadableOwnerOnly) {
         this.setReadableOwnerOnly = setReadableOwnerOnly;
-    }
-
-    private boolean safeBool(Boolean b) {
-        if( b == null ) {
-            return false;
-        }
-        return b;
     }
 
     private class ProcessQueue extends TimerTask {

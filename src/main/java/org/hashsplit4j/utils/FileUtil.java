@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import org.apache.commons.lang.BooleanUtils;
 
 /**
  *
@@ -51,5 +52,38 @@ public class FileUtil {
             file.createNewFile();
         }
         writeFile(file, data, append);
+    }
+
+    public static void writeFile(File file, byte[] data, boolean append, Boolean autoCreate, Boolean setReadable, Boolean setReadableOwnerOnly) throws IOException {
+        if (!file.exists() && autoCreate) {
+            File parentFile = file.getAbsoluteFile().getParentFile();
+
+            // org.apache.commons.io.FileUtils.forceMkdir(parentFile);
+            mkdirs(parentFile, setReadable, setReadableOwnerOnly);
+
+            file.createNewFile();
+
+            if (setReadable != null || setReadableOwnerOnly != null) {
+
+                boolean readable = BooleanUtils.toBoolean(setReadable);
+                boolean readableOwnerOnly = BooleanUtils.toBoolean(setReadableOwnerOnly);
+                file.setReadable(readable, readableOwnerOnly);
+            }
+        }
+        writeFile(file, data, append);
+    }
+
+    public static void mkdirs(File file, Boolean setReadable, Boolean setOwnerOnly) throws IOException {
+        if (!file.exists()) {
+            mkdirs(file.getParentFile(), setReadable, setOwnerOnly);
+
+            file.mkdir();
+
+            if (setReadable != null || setOwnerOnly != null) {
+                file.setReadable(setReadable, setOwnerOnly);
+                file.setWritable(setReadable, setOwnerOnly);
+                file.setExecutable(setReadable, setOwnerOnly);
+            }
+        }
     }
 }
