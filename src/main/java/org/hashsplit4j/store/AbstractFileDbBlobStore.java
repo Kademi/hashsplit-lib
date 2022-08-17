@@ -39,7 +39,7 @@ public class AbstractFileDbBlobStore extends AbstractBlobStore {
             try {
                 item = db.get(key);
                 if (item != null) {
-                    log.info("_get: key={} data size={}", key, item.length);
+                    //log.info("_get: key={} data size={}", key, item.length);
                     return item;
                 }
             } catch (IOException ex) {
