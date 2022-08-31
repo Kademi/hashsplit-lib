@@ -13,6 +13,7 @@ import org.apache.http.client.AuthCache;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.ResponseHandler;
+import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -63,6 +64,7 @@ public class HashsplitHttpTransport {
         RequestConfig reqConfig = RequestConfig.custom()
                 .setSocketTimeout(timeout)
                 .setConnectTimeout(timeout)
+                .setCookieSpec(CookieSpecs.STANDARD)
                 .build();
         CloseableHttpClient client = HttpClients.custom()
                 .setDefaultCredentialsProvider(credsProvider)
@@ -107,6 +109,7 @@ public class HashsplitHttpTransport {
         RequestConfig reqConfig = RequestConfig.custom()
                 .setSocketTimeout(timeout)
                 .setConnectTimeout(timeout)
+                .setCookieSpec(CookieSpecs.STANDARD)
                 .build();
         CloseableHttpClient client = HttpClients.custom()
                 .setDefaultCredentialsProvider(credsProvider)
