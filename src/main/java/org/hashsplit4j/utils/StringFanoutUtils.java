@@ -11,10 +11,12 @@ import org.hashsplit4j.api.FanoutImpl;
  */
 public class StringFanoutUtils {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StringFanoutUtils.class);
+
     public static String formatFanout(List<String> blobHashes, long actualContentLength) {
         StringBuilder sb = new StringBuilder();
 
-        for (String hash : blobHashes) {
+        for( String hash : blobHashes ) {
             sb.append(hash).append(",");
         }
 
@@ -29,11 +31,16 @@ public class StringFanoutUtils {
         Long actualContentLength = null;
         int len = parts.length;
         int count = 0;
-        for (String part : parts) {
-            if (++count < len) {
+        for( String part : parts ) {
+            if( ++count < len ) {
                 blobHashes.add(part);
             } else {
-                actualContentLength = Long.valueOf(part);
+                if( part.length() > 0 ) {
+                    actualContentLength = Long.valueOf(part);
+                } else {
+                    log.warn("Couldnt parse fanout text: {}; missing content length", fan);
+                    return null;
+                }
             }
         }
         return new FanoutImpl(blobHashes, actualContentLength);
