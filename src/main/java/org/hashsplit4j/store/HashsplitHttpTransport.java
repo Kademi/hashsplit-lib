@@ -3,6 +3,7 @@ package org.hashsplit4j.store;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Map;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
@@ -13,6 +14,7 @@ import org.apache.http.client.AuthCache;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.ResponseHandler;
+import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -21,9 +23,11 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.impl.client.BasicAuthCache;
+import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.cookie.BasicClientCookie;
 import org.apache.http.util.EntityUtils;
 
 /**
@@ -38,8 +42,9 @@ public class HashsplitHttpTransport {
     private final int port;
 
     private final HttpHost preemptiveAuthTarget;
-    private final AuthCache authCache = new BasicAuthCache();
+    private final AuthCache authCache;
     private final BasicScheme basicAuth = new BasicScheme();
+    private final BasicCookieStore cookieStore = new BasicCookieStore();
 
     public HashsplitHttpTransport(String server, int port, String username, String password) {
         this.server = server;
@@ -50,7 +55,24 @@ public class HashsplitHttpTransport {
                 new UsernamePasswordCredentials(username, password));
 
         preemptiveAuthTarget = new HttpHost(server, port, "http");
+        authCache = new BasicAuthCache();
         authCache.put(preemptiveAuthTarget, basicAuth);
+    }
+
+    public HashsplitHttpTransport(String server, int port, Map<String, String> cookies) {
+        this.server = server;
+        this.port = port;
+        this.credsProvider = null;
+        this.authCache = null;
+
+        this.preemptiveAuthTarget = new HttpHost(server, port, "http");
+
+        cookies.forEach((String key, String value) -> {
+            BasicClientCookie cookie = new BasicClientCookie(key, value);
+            cookie.setPath("/");
+            cookie.setDomain(preemptiveAuthTarget.getHostName());
+            cookieStore.addCookie(cookie);
+        });
     }
 
     public byte[] get(String path) {
@@ -63,10 +85,12 @@ public class HashsplitHttpTransport {
         RequestConfig reqConfig = RequestConfig.custom()
                 .setSocketTimeout(timeout)
                 .setConnectTimeout(timeout)
+                .setCookieSpec(CookieSpecs.STANDARD)
                 .build();
         CloseableHttpClient client = HttpClients.custom()
                 .setDefaultCredentialsProvider(credsProvider)
                 .setDefaultRequestConfig(reqConfig)
+                .setDefaultCookieStore(cookieStore)
                 .build();
         long tm = System.currentTimeMillis();
         try {
@@ -107,10 +131,12 @@ public class HashsplitHttpTransport {
         RequestConfig reqConfig = RequestConfig.custom()
                 .setSocketTimeout(timeout)
                 .setConnectTimeout(timeout)
+                .setCookieSpec(CookieSpecs.STANDARD)
                 .build();
         CloseableHttpClient client = HttpClients.custom()
                 .setDefaultCredentialsProvider(credsProvider)
                 .setDefaultRequestConfig(reqConfig)
+                .setDefaultCookieStore(cookieStore)
                 .build();
         CloseableHttpResponse response = null;
         try {
