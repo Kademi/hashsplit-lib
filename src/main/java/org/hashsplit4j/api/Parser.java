@@ -3,6 +3,7 @@ package org.hashsplit4j.api;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
@@ -81,6 +82,11 @@ public class Parser {
      * @throws IOException
      */
     public String parse(InputStream in, HashStore hashStore, BlobStore blobStore) throws IOException {
+        return parse(in, hashStore, blobStore, null);
+    }
+
+    public String parse(InputStream in, HashStore hashStore, BlobStore blobStore, Consumer<Long> callback) throws IOException {
+
 //        if (log.isInfoEnabled()) {
 //            log.info("parse. inputstream: " + in);
 //        }
@@ -99,18 +105,18 @@ public class Parser {
         long fileLength = 0;
 
         int s = in.read(arr, 0, 1024);
-        if (log.isTraceEnabled()) {
+        if( log.isTraceEnabled() ) {
             log.trace("initial block size: " + s);
         }
 
         List<String> fanoutHashes = new ArrayList<>();
-        while (s >= 0) {
+        while( s >= 0 ) {
             numBytes += s;
             //log.trace("numBytes: {}", numBytes);
-            if (cancelled) {
+            if( cancelled ) {
                 throw new IOException("operation cancelled");
             }
-            for (int i = 0; i < s; i++) {
+            for( int i = 0; i < s; i++ ) {
                 byte b = arr[i];
                 rsum.roll(b);
                 blobCrc.update(b);
@@ -124,19 +130,23 @@ public class Parser {
                 //System.out.println("x=" + x);
                 //System.out.println("check mask: " + (x & MASK) + " == " + MASK);
                 boolean limited;
-                if (MAX_BLOB_SIZE != null) {
+                if( MAX_BLOB_SIZE != null ) {
                     limited = bout.size() > MAX_BLOB_SIZE;
-                    if (limited) {
+                    if( limited ) {
                         log.warn("HIT BLOB LIMIT: " + bout.size());
                     }
                 } else {
                     limited = false;
                 }
-                if (((x & MASK) == MASK) || limited) {
+                if( ((x & MASK) == MASK) || limited ) {
                     String blobCrcHex = toHex(blobCrc);
                     byte[] blobBytes = bout.toByteArray();
-                    if (log.isInfoEnabled()) {
+                    if( log.isInfoEnabled() ) {
                         log.info("Store blob: " + blobCrcHex + " length=" + blobBytes.length + " hash: " + x + " mask: " + MASK);
+                    }
+
+                    if( callback != null ) {
+                        callback.accept(numBytes);
                     }
 
                     blobStore.setBlob(blobCrcHex, blobBytes);
@@ -144,7 +154,7 @@ public class Parser {
                     bout.reset();
                     blobHashes.add(blobCrcHex);
                     blobCrc.reset();
-                    if ((x & FANOUT_MASK) == FANOUT_MASK) {
+                    if( (x & FANOUT_MASK) == FANOUT_MASK ) {
                         String fanoutCrcVal = toHex(fanoutCrc);
                         fanoutHashes.add(fanoutCrcVal);
                         //log.info("set chunk fanout: {} length={}", fanoutCrcVal, fanoutLength);
@@ -163,6 +173,11 @@ public class Parser {
         // Need to store terminal data, ie data which has been accumulated since the last boundary
         String blobCrcHex = toHex(blobCrc);
         //System.out.println("Store terminal blob: " + blobCrcHex);
+
+        if( callback != null ) {
+            callback.accept(numBytes);
+        }
+
         blobStore.setBlob(blobCrcHex, bout.toByteArray());
         numBlobs++;
         blobHashes.add(blobCrcHex);
@@ -182,14 +197,14 @@ public class Parser {
     }
 
     public static Digest getCrypt(String algorithmName) {
-        if (StringUtils.isEmpty(algorithmName)) {
+        if( StringUtils.isEmpty(algorithmName) ) {
             return new SHA1Digest();
         }
 
         algorithmName = StringUtils.trim(StringUtils.upperCase(algorithmName));
         algorithmName = algorithmName.replaceAll("[^A-Za-z0-9]", "");
 
-        switch (algorithmName) {
+        switch( algorithmName ) {
             case "SHA256":
                 return new SHA256Digest();
             case "SHA384":
@@ -210,7 +225,7 @@ public class Parser {
         crypt.doFinal(result, 0);
 
         String an = crypt.getAlgorithmName();
-        switch (an) {
+        switch( an ) {
             case "SHA-1":
                 return DigestUtils.sha1Hex(result);
             case "SHA-256":
