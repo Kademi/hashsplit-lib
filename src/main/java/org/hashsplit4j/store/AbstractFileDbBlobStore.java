@@ -35,15 +35,17 @@ public class AbstractFileDbBlobStore extends AbstractBlobStore {
 
     protected byte[] _get(String key) {
         for (SimpleFileDb db : dbs) {
-            byte[] item;
-            try {
-                item = db.get(key);
-                if (item != null) {
-                    //log.info("_get: key={} data size={}", key, item.length);
-                    return item;
+            if (db.isEnabled()) {
+                byte[] item;
+                try {
+                    item = db.get(key);
+                    if (item != null) {
+                        //log.info("_get: key={} data size={}", key, item.length);
+                        return item;
+                    }
+                } catch (IOException ex) {
+                    log.warn("Exception looking for " + key + " in db" + db.getName() + " - {}", ex);
                 }
-            } catch (IOException ex) {
-                log.warn("Exception looking for " + key + " in db" + db.getName() + " - {}", ex);
             }
         }
         return null;
@@ -51,8 +53,10 @@ public class AbstractFileDbBlobStore extends AbstractBlobStore {
 
     protected boolean _hashKey(String key) {
         for (SimpleFileDb db : dbs) {
-            if (db.contains(key)) {
-                return true;
+            if (db.isEnabled()) {
+                if (db.contains(key)) {
+                    return true;
+                }
             }
         }
         return false;

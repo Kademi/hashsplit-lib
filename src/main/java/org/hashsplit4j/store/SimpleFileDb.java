@@ -12,6 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +30,7 @@ public class SimpleFileDb {
     private final File valuesFile;
 
     private final Map<String, DbItem> mapOfItems = new HashMap<>();
+    private boolean enabled = false;
 
     /**
      *
@@ -52,7 +54,7 @@ public class SimpleFileDb {
 
     public String getValuesFilePath() {
         try {
-            return keysFile.getCanonicalPath();
+            return valuesFile.getCanonicalPath();
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
@@ -70,8 +72,21 @@ public class SimpleFileDb {
         return name;
     }
 
+    public void replaceData(File newKeysFile, File newValsFile) {
+        enabled = false;
+        mapOfItems.clear();
+        try {
+            replaceFileContent(newKeysFile, keysFile);
+            replaceFileContent(newValsFile, valuesFile);
+            init();
+        } catch (IOException ex) {
+            throw new RuntimeException("Couldnt initialise SimpleDb", ex);
+        }
+    }
+
     public synchronized void init() throws FileNotFoundException, IOException {
         if (keysFile.exists()) {
+            log.warn("init: using keysfile {}", keysFile.getAbsolutePath() );
             try (FileInputStream fin = new FileInputStream(keysFile)) {
                 InputStreamReader r1 = new InputStreamReader(fin);
                 BufferedReader reader = new BufferedReader(r1);
@@ -81,15 +96,18 @@ public class SimpleFileDb {
                     line = reader.readLine();
                 }
             }
+        } else {
+            log.warn("init: keysfile does not exist: {}", keysFile.getAbsolutePath() );
         }
+        enabled = true;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
     public int size() {
         return mapOfItems.size();
-    }
-
-    Map<String, DbItem> getMapOfItems() {
-        return mapOfItems;
     }
 
     public boolean contains(String hash) {
@@ -157,10 +175,19 @@ public class SimpleFileDb {
             log.info("Invalid line, not 3 parts: {}", line);
         } else {
             String key = arr[0];
-            long start = Long.valueOf(arr[1]);
-            long finish = Long.valueOf(arr[2]);
+            long start = Long.parseLong(arr[1]);
+            long finish = Long.parseLong(arr[2]);
             DbItem dbItem = new DbItem(start, finish);
             mapOfItems.put(key, dbItem);
+        }
+    }
+
+    private void replaceFileContent(File source, File dest) throws FileNotFoundException, IOException {
+        log.info("replaceFileContent: replacing content of dest file {} with source file {}", dest.getAbsolutePath(), source.getAbsolutePath());
+        try( FileInputStream newFileIn = new FileInputStream(source)) {
+            try( FileOutputStream fileOut = new FileOutputStream(dest, false)) {
+                IOUtils.copyLarge(newFileIn, fileOut);
+            }
         }
     }
 
