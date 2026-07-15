@@ -33,7 +33,7 @@ public class SimpleFileDb {
 
     private final Map<String, DbItem> mapOfItems = new HashMap<>();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private boolean enabled = false;
+    private volatile boolean enabled = false;
 
     /**
      *
@@ -118,31 +118,28 @@ public class SimpleFileDb {
         enabled = true;
     }
 
+    // deliberately not locked - callers use this to decide whether to fall through
+    // to the primary store while replaceData is swapping in new data, so it must
+    // never block behind the write lock
     public boolean isEnabled() {
-        lock.readLock().lock();
-        try {
-            return enabled;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return enabled;
     }
 
+    // no lock - mapOfItems is only ever mutated while enabled is false (see
+    // replaceData/initLocked), so once enabled is true it's stable to read
     public int size() {
-        lock.readLock().lock();
-        try {
-            return mapOfItems.size();
-        } finally {
-            lock.readLock().unlock();
+        if (!enabled) {
+            return 0;
         }
+        return mapOfItems.size();
     }
 
+    // no lock - see size()
     public boolean contains(String hash) {
-        lock.readLock().lock();
-        try {
-            return mapOfItems.containsKey(hash);
-        } finally {
-            lock.readLock().unlock();
+        if (!enabled) {
+            return false;
         }
+        return mapOfItems.containsKey(hash);
     }
 
     public DbItem put(String key, byte[] val) throws FileNotFoundException, IOException {
@@ -177,6 +174,7 @@ public class SimpleFileDb {
             }
 
             mapOfItems.put(key, dbItem);
+            enabled = true;
 
             return dbItem;
         } finally {
@@ -184,17 +182,16 @@ public class SimpleFileDb {
         }
     }
 
+    // no lock - see size()
     public byte[] get(String key) throws FileNotFoundException, IOException {
-        lock.readLock().lock();
-        try {
-            DbItem item = mapOfItems.get(key);
-            if (item == null) {
-                return null;
-            }
-            return getLocked(item);
-        } finally {
-            lock.readLock().unlock();
+        if (!enabled) {
+            return null;
         }
+        DbItem item = mapOfItems.get(key);
+        if (item == null) {
+            return null;
+        }
+        return getLocked(item);
     }
 
     public byte[] get(DbItem item) throws FileNotFoundException, IOException {
@@ -206,7 +203,6 @@ public class SimpleFileDb {
         }
     }
 
-    // must only be called while holding either lock
     private byte[] getLocked(DbItem item) throws FileNotFoundException, IOException {
         RandomAccessFile raf = new RandomAccessFile(valuesFile, "r");
         try (FileChannel chan = raf.getChannel()) {
