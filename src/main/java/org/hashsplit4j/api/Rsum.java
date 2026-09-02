@@ -86,6 +86,59 @@ public class Rsum implements Cloneable, java.io.Serializable {
 
 
     /**
+     * Rolls over a run of bytes, stopping after the one whose checksum matches the mask.
+     * <p>
+     * Identical to calling {@link #roll(byte)} for each byte and testing {@link #getValue()} after each - the
+     * arithmetic below is copied statement for statement, including the implicit narrowing of the compound assignments
+     * on the two short accumulators, which is where the wrap-around behaviour every stored hash depends on comes from.
+     * <p>
+     * What it avoids is per-byte work that has nothing to do with the checksum: a virtual call, and a read and a write
+     * of four fields. Held in locals across a run instead, they stay in registers. On a 6.5GB file this is the
+     * difference between 33 and 17 seconds of parse time, measured in the Go port of this same algorithm, where the
+     * rolling checksum turned out to be 49% of the total - not the SHA-1.
+     *
+     * @param p bytes to roll over
+     * @param off offset into p
+     * @param len how many bytes may be rolled
+     * @param mask boundary mask; a byte is a boundary when {@code (getValue() & mask) == mask}
+     * @return the number of bytes consumed, the last of which is the boundary, or -1 if all len bytes were rolled
+     * without finding one
+     */
+    public int rollBoundary(byte[] p, int off, int len, int mask) {
+        // Locals, written back once on the way out.
+        short la = a;
+        short lb = b;
+        int lOldByte = oldByte;
+        final int bl = blockLength;
+        final byte[] buf = buffer;
+
+        for( int i = 0; i < len; i++ ) {
+            byte newByte = p[off + i];
+            short oldUnsignedB = unsignedByte(buf[lOldByte]);
+            la -= oldUnsignedB;
+            lb -= bl * oldUnsignedB;
+            la += unsignedByte(newByte);
+            lb += la;
+            buf[lOldByte] = newByte;
+            lOldByte++;
+            if( lOldByte == bl ) {
+                lOldByte = 0;
+            }
+            if( ((((la & 0xffff) | (lb << 16))) & mask) == mask ) {
+                a = la;
+                b = lb;
+                oldByte = lOldByte;
+                return i + 1;
+            }
+        }
+
+        a = la;
+        b = lb;
+        oldByte = lOldByte;
+        return -1;
+    }
+
+    /**
      * Returns "unsigned" value of byte
      *
      * @param b Byte to convert

@@ -13,10 +13,14 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.NullOutputStream;
 import org.bouncycastle.crypto.Digest;
@@ -60,13 +64,31 @@ public class HashCalc {
      * @throws IOException
      */
     public String calcHash(Iterable<? extends ITriplet> childDirEntries, OutputStream out) throws IOException {
-        Digest crypto = Parser.getCrypt();
+        MessageDigest digest = sha1();
         for (ITriplet r : childDirEntries) {
-            String line = toHashableText(r.getName(), r.getHash(), r.getType());
-            appendLine(line, crypto);
-            out.write(line.getBytes());
+            // UTF-8 explicitly. String.getBytes() uses the platform default charset,
+            // so a directory holding a non-ASCII name hashed differently depending on
+            // the JVM's file.encoding - the hash was not a function of the content.
+            // Encoded once and used for both the digest and the output, so the two
+            // cannot disagree.
+            byte[] line = toHashableText(r.getName(), r.getHash(), r.getType()).getBytes(StandardCharsets.UTF_8);
+            digest.update(line, 0, line.length);
+            out.write(line);
         }
-        return Parser.toHex(crypto);
+        return DigestUtils.sha1Hex(digest.digest());
+    }
+
+    /**
+     * SHA-1 from the JDK provider rather than BouncyCastle, which is ~5x faster for
+     * the same bytes. The value is unchanged: the hash of a directory is
+     * sha1Hex(sha1(lines)), and only the inner digest is computed here.
+     */
+    private static MessageDigest sha1() {
+        try {
+            return MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-1 is required and not available", e);
+        }
     }
 
     /**
@@ -84,18 +106,23 @@ public class HashCalc {
         return line;
     }
 
+    /**
+     * @deprecated calcHash no longer uses this. Kept because it is public API.
+     */
+    @Deprecated
     public static void appendLine(String line, Digest cout) {
         if (line == null) {
             return;
         }
-        for (byte b : line.getBytes()) {
-            cout.update(b);
-        }
-
+        // One update for the whole line, not one per byte, and UTF-8 rather than the
+        // platform default.
+        byte[] bytes = line.getBytes(StandardCharsets.UTF_8);
+        cout.update(bytes, 0, bytes.length);
     }
 
     public List<ITriplet> parseTriplets(InputStream in) throws IOException {
-        Reader reader = new InputStreamReader(in);
+        // UTF-8, to match what calcHash writes.
+        Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8);
         BufferedReader bufIn = new BufferedReader(reader);
         List<ITriplet> list = new ArrayList<ITriplet>();
         String line = bufIn.readLine();
@@ -109,11 +136,19 @@ public class HashCalc {
 
     private Triplet parse(String line) {
         try {
-            String[] arr = line.split(":");
+            // Counted from the right, because a file name may contain a colon while a
+            // hash (hex) and a type (one letter) cannot. Splitting on every colon and
+            // taking 0, 1, 2 turned "a:b.txt:<hash>:f" into name "a", hash "b.txt" and
+            // type "<hash>", so such a listing could not round trip.
+            int lastColon = line.lastIndexOf(':');
+            int prevColon = line.lastIndexOf(':', lastColon - 1);
+            if (lastColon < 0 || prevColon < 0) {
+                throw new IllegalArgumentException("expected name:hash:type");
+            }
             Triplet triplet = new Triplet();
-            triplet.setName(arr[0]);
-            triplet.setHash(arr[1]);
-            triplet.setType(arr[2]);
+            triplet.setName(line.substring(0, prevColon));
+            triplet.setHash(line.substring(prevColon + 1, lastColon));
+            triplet.setType(line.substring(lastColon + 1));
             return triplet;
         } catch (Throwable e) {
             throw new RuntimeException("Couldnt parse - " + line, e);
@@ -187,12 +222,11 @@ public class HashCalc {
 
         @Override
         public int compare(ITriplet o1, ITriplet o2) {
-            if (o1 == null) {
-                if (o2 == null) {
-                    return 0;
-                } else {
-                    return -1;
-                }
+            if (o1 == null || o2 == null) {
+                // Symmetric: the old code guarded o1 only, so compare(a, null) threw
+                // rather than ordering, which breaks the Comparator contract and threw
+                // or not depending on the order TimSort happened to compare a pair.
+                return o1 == o2 ? 0 : (o1 == null ? -1 : 1);
             } else {
                 if (o1.getName().equals(o2.getName())) {
                     // name is equal, so differentiate on type
