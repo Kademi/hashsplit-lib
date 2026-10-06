@@ -9,6 +9,7 @@ import io.milton.http.exceptions.NotAuthorizedException;
 import java.io.*;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -93,13 +94,13 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
     @Override
     public byte[] getBlob(String hash) {
         File blob = FileSystem2Utils.toFile(root, hash);
-        if (!blob.exists()) {
-            return null;
-        }
         try {
-            byte[] arr = FileUtils.readFileToByteArray(blob);
+            // no exists() check first: on network storage it is an extra round trip on every read
+            byte[] arr = Files.readAllBytes(blob.toPath());
             log.trace("FileSystemBlobStore: getBlob: loaded file: {} for hash: {}", blob.getAbsolutePath(), hash);
             return arr;
+        } catch (NoSuchFileException ex) {
+            return null;
         } catch (IOException ex) {
             throw new RuntimeException(blob.getAbsolutePath(), ex);
         }
