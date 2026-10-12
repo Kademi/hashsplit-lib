@@ -12,9 +12,12 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -23,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.BooleanUtils;
 import org.hashsplit4j.api.BlobImpl;
 import org.hashsplit4j.api.BlobStore;
 import org.hashsplit4j.utils.FileUtil;
@@ -37,6 +41,7 @@ import org.hashsplit4j.utils.FileSystem2Utils;
 public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, ReceivingBlobStore {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(FileSystem2BlobStore.class);
+    private static final String TMP_SUFFIX = ".tmp";
 
     private final File root;
     private final EventManager eventManager;
@@ -71,13 +76,25 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
 
     public void setBlob(String hash, byte[] bytes, boolean enableEvent) {
         File blob = FileSystem2Utils.toFile(root, hash);
-        if (blob.exists()) {
+        if (bytes.length > 0 ? blob.length() >= bytes.length : blob.exists()) { // a shorter file is left by an interrupted non-atomic write, so rewrite it
             log.trace("FileSystemBlobStore: setBlob: file exists: {}", blob.getAbsolutePath());
             return; // already exists, so dont overwrite
         }
+        // written under a temp name then renamed, so another server never reads a partial blob
+        Path tmp = new File(blob.getParentFile(), hash + "." + UUID.randomUUID() + TMP_SUFFIX).toPath();
         try {
-            FileUtil.writeFile(blob, bytes, false, true, setReadable, setReadableOwnerOnly);
+            FileUtil.mkdirs(blob.getAbsoluteFile().getParentFile(), setReadable, setReadableOwnerOnly);
+            Files.write(tmp, bytes, StandardOpenOption.CREATE_NEW);
+            if (setReadable != null || setReadableOwnerOnly != null) {
+                tmp.toFile().setReadable(BooleanUtils.toBoolean(setReadable), BooleanUtils.toBoolean(setReadableOwnerOnly));
+            }
+            Files.move(tmp, blob.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException ex) {
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException ex2) {
+                log.warn("Failed to delete temp blob file: {}", tmp, ex2);
+            }
             throw new RuntimeException(blob.getAbsolutePath(), ex);
         }
         log.trace("FileSystemBlobStore: setBlob: wrote file: {} with bytes: {}", blob.getAbsolutePath(), bytes.length);
@@ -158,6 +175,9 @@ public class FileSystem2BlobStore implements BlobStore, PushingBlobStore, Receiv
     private void pushBlobTo(File blob) throws IOException {
         if (this.receivingBlobStore != null && blob.isFile() && blob.exists()) {
             String fileName = blob.getName();
+            if (fileName.endsWith(TMP_SUFFIX)) {
+                return; // a blob still being written, or left by a failed write
+            }
             byte[] arr = FileUtils.readFileToByteArray(blob);
             if (!this.receivingBlobStore.hasBlob(fileName)) {
                 this.receivingBlobStore.pushBlobToQueue(fileName, arr);
